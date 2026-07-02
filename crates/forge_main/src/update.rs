@@ -4,8 +4,9 @@ use colored::Colorize;
 use forge_api::API;
 use forge_config::{Update, UpdateFrequency};
 use forge_select::ForgeWidget;
-use forge_tracker::VERSION;
 use update_informer::{Check, Version, registry};
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Runs the official installation script to update Forge, failing silently.
 /// When `auto_update` is true, exits immediately after a successful update
@@ -18,8 +19,7 @@ async fn execute_update_command(api: Arc<impl API>, auto_update: bool) {
 
     match output {
         Err(err) => {
-            // Send an event to the tracker on failure
-            // We don't need to handle this result since we're failing silently
+            // Log the failure; we fail silently
             let _ = send_update_failure_event(&format!("Auto update failed {err}")).await;
         }
         Ok(output) => {
@@ -27,7 +27,7 @@ async fn execute_update_command(api: Arc<impl API>, auto_update: bool) {
                 let should_exit = if auto_update {
                     true
                 } else {
-                    let answer = forge_select::ForgeWidget::confirm(
+                    let answer = ForgeWidget::confirm(
                         "You need to close forge to complete update. Do you want to close it now?",
                     )
                     .with_default(true)
@@ -97,7 +97,7 @@ pub async fn on_update(api: Arc<impl API>, update: Option<&Update>) {
     }
 }
 
-/// Sends an event to the tracker when an update fails
+/// Logs an error when an update fails
 async fn send_update_failure_event(error_msg: &str) -> anyhow::Result<()> {
     tracing::error!(error = error_msg, "Update failed");
     // Always return Ok since we want to fail silently

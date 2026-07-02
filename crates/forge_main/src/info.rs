@@ -4,11 +4,12 @@ use std::time::Duration;
 
 use colored::Colorize;
 use forge_api::{Conversation, Environment, ForgeConfig, Metrics, Model, Role, Usage};
-use forge_tracker::VERSION;
 use num_format::{Locale, ToFormattedString};
 
 use crate::display_constants::markers;
 use crate::model::ForgeCommandManager;
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, PartialEq)]
 pub enum Section {

@@ -273,9 +273,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             )])
             .await?;
 
-        // Update the UI state with the new model
-        self.update_model(Some(model.clone()));
-
         self.writeln_title(TitleFormat::action(format!("Switched to model: {model}")))?;
 
         Ok(Some(model))

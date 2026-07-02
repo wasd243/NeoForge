@@ -3,14 +3,12 @@ use forge_api::{API, ChatRequest, ChatResponse, Event, InterruptionReason};
 use forge_config::ForgeConfig;
 use forge_domain::{ChatResponseContent, ConsoleWriter, TitleFormat, UserCommand};
 use forge_select::ForgeWidget;
-use forge_tracker::ToolCallPayload;
 use tokio_stream::StreamExt;
 
 use super::UI;
 use crate::info::Info;
 use crate::stream_renderer::StreamingWriter;
 use crate::title_display::TitleDisplayExt;
-use crate::tracker;
 
 impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI<A, F> {
     // Handle dispatching events from the CLI
@@ -141,19 +139,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 // stdout from appearing before the tool name is printed.
                 drop(_guard);
             }
-            ChatResponse::ToolCallEnd(toolcall_result) => {
-                // Only track toolcall name in case of success else track the error.
-                let payload = if toolcall_result.is_error() {
-                    let mut r = ToolCallPayload::new(toolcall_result.name.to_string());
-                    if let Some(cause) = toolcall_result.output.as_str() {
-                        r = r.with_cause(cause.to_string());
-                    }
-                    r
-                } else {
-                    ToolCallPayload::new(toolcall_result.name.to_string())
-                };
-                tracker::tool_call(payload);
-
+            ChatResponse::ToolCallEnd(_) => {
                 self.spinner.start(None)?;
                 if !self.cli.verbose {
                     return Ok(());

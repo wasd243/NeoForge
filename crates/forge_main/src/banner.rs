@@ -1,7 +1,8 @@
 use std::{fmt, io};
 
 use colored::Colorize;
-use forge_tracker::VERSION;
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const BANNER: &str = include_str!("banner");
 
