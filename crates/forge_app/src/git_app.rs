@@ -150,7 +150,22 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> GitApp<
     ) -> Result<CommitResult> {
         let cwd = self.services.get_environment().cwd;
         let flags = if has_staged_files { "" } else { " -a" };
-        let commit_command = build_commit_command(&message, flags, use_forge_committer);
+        let full_message = build_commit_message(&message, use_forge_committer);
+
+        // Write the commit message to a temporary file and commit with `-F`.
+        // Passing the message inline via `-m` requires shell-specific quoting
+        // (POSIX vs cmd.exe vs PowerShell) and breaks on messages containing
+        // quotes or newlines. A file path only needs simple double quoting,
+        // which works across all supported shells.
+        let message_file = tempfile::Builder::new()
+            .prefix("forge-commit-msg-")
+            .suffix(".txt")
+            .tempfile()
+            .context("Failed to create temporary commit message file")?;
+        std::fs::write(message_file.path(), &full_message)
+            .context("Failed to write commit message to temporary file")?;
+
+        let commit_command = build_commit_command(flags, message_file.path());
 
         let commit_result = self
             .services
@@ -392,21 +407,29 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> GitApp<
 /// attribution is enabled. The email address is a placeholder.
 const FORGE_CO_AUTHOR_TRAILER: &str = "Co-authored-by: ForgeCode <noreply@forgecode.dev>";
 
-/// Builds the `git commit` shell command string.
+/// Builds the final commit message.
 ///
 /// When `use_forge_committer` is true, appends a `Co-authored-by` trailer
 /// crediting ForgeCode to the commit message. This avoids relying on inline
 /// environment variable assignments (`GIT_COMMITTER_NAME=... git commit`),
 /// which are POSIX-shell specific and fail on Windows shells.
-fn build_commit_command(message: &str, flags: &str, use_forge_committer: bool) -> String {
-    let message = if use_forge_committer {
+fn build_commit_message(message: &str, use_forge_committer: bool) -> String {
+    if use_forge_committer {
         format!("{message}\n\n{FORGE_CO_AUTHOR_TRAILER}")
     } else {
         message.to_string()
-    };
-    // Escape single quotes in the message by replacing ' with '\''
-    let escaped_message = message.replace('\'', r"'\''");
-    format!("git commit {flags} -m '{escaped_message}'")
+    }
+}
+
+/// Builds the `git commit` shell command string.
+///
+/// The commit message is read from a file via `-F` instead of being passed
+/// inline with `-m`. Inline messages require shell-specific escaping (POSIX
+/// single-quote escaping fails in PowerShell and cmd.exe), whereas a
+/// double-quoted file path is interpreted identically by all supported
+/// shells.
+fn build_commit_command(flags: &str, message_file: &Path) -> String {
+    format!("git commit{flags} -F \"{}\"", message_file.display())
 }
 
 #[cfg(test)]
@@ -416,37 +439,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_commit_command_with_forge_committer_staged() {
-        let actual = build_commit_command("feat: add feature", "", true);
-        let expected = "git commit  -m 'feat: add feature\n\nCo-authored-by: ForgeCode <noreply@forgecode.dev>'";
+    fn test_build_commit_message_with_forge_committer() {
+        let actual = build_commit_message("feat: add feature", true);
+        let expected =
+            "feat: add feature\n\nCo-authored-by: ForgeCode <noreply@forgecode.dev>";
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn test_build_commit_command_with_forge_committer_unstaged() {
-        let actual = build_commit_command("fix: bug", " -a", true);
-        let expected = "git commit  -a -m 'fix: bug\n\nCo-authored-by: ForgeCode <noreply@forgecode.dev>'";
+    fn test_build_commit_message_without_forge_committer() {
+        let actual = build_commit_message("chore: update", false);
+        let expected = "chore: update";
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn test_build_commit_command_without_forge_committer_staged() {
-        let actual = build_commit_command("chore: update", "", false);
-        let expected = "git commit  -m 'chore: update'";
+    fn test_build_commit_message_preserves_special_characters() {
+        let actual = build_commit_message("feat: it's \"done\"", false);
+        let expected = "feat: it's \"done\"";
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn test_build_commit_command_without_forge_committer_unstaged() {
-        let actual = build_commit_command("docs: readme", " -a", false);
-        let expected = "git commit  -a -m 'docs: readme'";
+    fn test_build_commit_command_staged() {
+        let actual = build_commit_command("", Path::new("/tmp/msg.txt"));
+        let expected = "git commit -F \"/tmp/msg.txt\"";
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn test_build_commit_command_escapes_single_quotes() {
-        let actual = build_commit_command("feat: it's done", "", true);
-        let expected = "git commit  -m 'feat: it'\\''s done\n\nCo-authored-by: ForgeCode <noreply@forgecode.dev>'";
+    fn test_build_commit_command_unstaged() {
+        let actual = build_commit_command(" -a", Path::new("/tmp/msg.txt"));
+        let expected = "git commit -a -F \"/tmp/msg.txt\"";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_build_commit_command_windows_path() {
+        let actual = build_commit_command("", Path::new(r"C:\Temp\forge-commit-msg.txt"));
+        let expected = "git commit -F \"C:\\Temp\\forge-commit-msg.txt\"";
         assert_eq!(actual, expected);
     }
 }

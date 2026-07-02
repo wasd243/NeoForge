@@ -5,7 +5,7 @@ use std::time::Duration;
 use std::{cmp, fmt};
 use std::path::{self, PathBuf};
 use std::fs;
-
+use colored::Colorize;
 use crossterm::cursor::{Hide, MoveTo, MoveToColumn, MoveUp, Show};
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
@@ -850,6 +850,11 @@ fn render_preview(command: &str, row: &SelectRow, working_dir: Option<&path::Pat
         PathBuf::from(&row.raw)
     };
 
+    // fix the bug that the path is not escaped huh?
+    if path.is_dir() {
+        return format!("{}: {}", row.display, "Is a directory.How can you preview it???".bright_red().italic());
+    }
+
     match fs::read_to_string(&path) {
         Ok(content) => content
             .lines()
@@ -1324,56 +1329,5 @@ fn truncate_line(value: &str, max_width: usize) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use pretty_assertions::assert_eq;
-
-    use super::*;
-
-    #[test]
-    fn test_desired_select_viewport_height_right_ignores_preview_line_count() {
-        let fixture = PreviewLayout { placement: PreviewPlacement::Right, percent: 50 };
-        let actual = desired_select_viewport_height(1, 2, 285, fixture);
-        let expected = 5;
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_desired_select_viewport_height_bottom_includes_preview_line_count() {
-        let fixture = PreviewLayout { placement: PreviewPlacement::Bottom, percent: 50 };
-        let actual = desired_select_viewport_height(1, 2, 4, fixture);
-        let expected = 11;
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_preview_select_viewport_height_keeps_prompt_safety_row() {
-        let fixture = 20;
-        let actual = preview_select_viewport_height(fixture);
-        let expected = 19;
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_bottom_preview_height_keeps_preview_in_small_windows() {
-        let fixture = (10, 50);
-        let actual = bottom_preview_height(fixture.0, fixture.0, fixture.1);
-        let expected = 7;
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_bottom_preview_height_caps_preview_to_keep_visible_list() {
-        let fixture = (20, 50);
-        let actual = bottom_preview_height(fixture.0, fixture.0, fixture.1);
-        let expected = 14;
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_bottom_preview_height_uses_extra_body_space() {
-        let fixture = (28, 28, 50);
-        let actual = bottom_preview_height(fixture.0, fixture.1, fixture.2);
-        let expected = 20;
-        assert_eq!(actual, expected);
-    }
-}
+#[path = "../tests/preview_test.rs"]
+mod tests;

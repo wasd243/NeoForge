@@ -28,8 +28,8 @@ impl CommandCompleter {
 
 impl CommandCompleter {
     pub fn complete(&mut self, line: &str, _: usize) -> Vec<InputSuggestion> {
-        // Determine which sentinel the user typed (`:` or `/`), defaulting to `/`.
-        let sentinel = if line.starts_with(':') { ':' } else { '/' };
+        // Determine which sentinel the user typed (`/` or `/`), defaulting to `/`.
+        let sentinel = '/';
 
         // Build the list of display names using the same sentinel the user typed.
         let commands: Vec<CommandRow> = self
@@ -64,7 +64,6 @@ impl CommandCompleter {
         // `!`).
         let initial_query = line
             .strip_prefix('/')
-            .or_else(|| line.strip_prefix(':'))
             .or_else(|| line.strip_prefix('!'))
             .unwrap_or(line);
 
