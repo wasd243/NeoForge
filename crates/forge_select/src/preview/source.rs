@@ -1,11 +1,16 @@
 //! Data sources for the picker: fuzzy-match extraction and preview content.
+//!
+//! Preview content is read straight from the selected file and passed
+//! through the syntect-based highlighter in [`super::highlight`] so code
+//! files render with colors in the preview pane.
 
-use std::fs;
 use std::path::{self, PathBuf};
+use std::fs;
 
 use colored::Colorize;
 use nucleo::Nucleo;
 
+use super::highlight::highlight_preview;
 use super::types::SelectRow;
 
 /// Maximum number of lines read from a file when rendering its preview.
@@ -22,7 +27,8 @@ pub(crate) fn matched_rows(matcher: &Nucleo<SelectRow>) -> Vec<&SelectRow> {
 }
 
 /// Renders the preview text for the selected row by reading the referenced
-/// file directly (no shell involved, cross-platform).
+/// file directly (no shell involved, cross-platform) and syntax-highlighting
+/// it with syntect.
 ///
 /// `command` acts only as an on/off switch: a blank command disables the
 /// preview entirely and returns an empty string. Relative row values are
@@ -59,20 +65,23 @@ pub(crate) fn render_preview(
 
     if path.is_dir() {
         return format!(
-            "{}: {}",
+            "{} {}",
             row.display,
-            "is a directory (no preview available)".bright_red().italic()
+            "is a directory, how can you preview a folder???".bright_red().italic()
         );
     }
 
-    // Cap the preview to keep rendering and ANSI-aware wrapping cheap for
-    // very large files.
+    // Cap the preview to keep highlighting and ANSI-aware wrapping cheap for
+    // very large files, then colorize the visible portion.
     match fs::read_to_string(&path) {
-        Ok(content) => content
-            .lines()
-            .take(PREVIEW_MAX_LINES)
-            .collect::<Vec<_>>()
-            .join("\n"),
+        Ok(content) => {
+            let capped = content
+                .lines()
+                .take(PREVIEW_MAX_LINES)
+                .collect::<Vec<_>>()
+                .join("\n");
+            highlight_preview(&capped, &path)
+        }
         Err(error) => format!("Cannot preview {}: {error}", row.display),
     }
 }

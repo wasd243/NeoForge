@@ -12,10 +12,12 @@
 //! - [`layout`] - viewport geometry (pane sizes, mouse hit-testing).
 //! - [`render`] - frame painting into the reserved inline viewport.
 //! - [`source`] - fuzzy-match extraction and preview file reading.
+//! - [`highlight`] - syntect-based syntax highlighting for the preview.
 //! - [`text`] - ANSI-aware wrapping and truncation helpers.
 //! - [`utils`] - inline viewport reservation and cursor math.
 //! - [`terminal_guard`] - RAII raw-mode/mouse-capture guard.
 
+mod highlight;
 mod keymap;
 mod layout;
 mod render;
