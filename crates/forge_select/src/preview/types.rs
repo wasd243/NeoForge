@@ -1,7 +1,16 @@
+use std::fmt;
 use std::path::PathBuf;
 use derive_setters::Setters;
 use crate::preview::{run_select_ui, run_select_ui_values};
-use crate::SelectMode;
+
+/// Selector behavior for accepting one or more rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectMode {
+    /// Accept a single row.
+    Single,
+    /// Accept multiple rows queued with tab.
+    Multi,
+}
 
 /// Row rendered by the shared selector UI.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,6 +68,48 @@ pub struct SelectUiOptions {
     /// Optional working directory for resolving relative paths in preview.
     #[setters(skip)]
     pub working_dir: Option<PathBuf>,
+}
+
+
+impl SelectRow {
+    /// Creates a selectable row with a raw value and a display value.
+    pub fn new(raw: impl Into<String>, display: impl Into<String>) -> Self {
+        let raw = raw.into();
+        Self {
+            fields: vec![raw.clone()],
+            search: raw.clone(),
+            raw,
+            display: display.into(),
+        }
+    }
+
+    /// Sets the text indexed by the fuzzy matcher.
+    pub fn search(mut self, search: impl Into<String>) -> Self {
+        self.search = search.into();
+        self
+    }
+
+    /// Creates a non-selectable header row.
+    pub fn header(display: impl Into<String>) -> Self {
+        Self {
+            raw: String::new(),
+            display: display.into(),
+            search: String::new(),
+            fields: Vec::new(),
+        }
+    }
+}
+
+impl fmt::Display for SelectRow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.display)
+    }
+}
+
+impl Default for PreviewLayout {
+    fn default() -> Self {
+        Self { placement: PreviewPlacement::Right, percent: 50 }
+    }
 }
 
 impl SelectUiOptions {
