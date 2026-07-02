@@ -2654,6 +2654,7 @@ dependencies = [
  "nucleo-picker",
  "pretty_assertions",
  "rustyline",
+ "syntect",
  "tracing",
 ]
 

@@ -18,6 +18,7 @@ nucleo.workspace = true
 nucleo-picker.workspace = true
 rustyline.workspace = true
 tracing.workspace = true
+syntect.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
