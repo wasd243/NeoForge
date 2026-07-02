@@ -3,6 +3,9 @@ name = "forge_select"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
+# Files in tests/ are included as unit-test modules via #[path]; disable
+# auto-discovery so cargo doesn't also compile them as integration tests.
+autotests = false
 
 [dependencies]
 anyhow.workspace = true

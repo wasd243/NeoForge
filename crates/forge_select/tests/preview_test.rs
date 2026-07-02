@@ -1,7 +1,7 @@
-use crate::preview::{
-    PreviewLayout, PreviewPlacement, bottom_preview_height, desired_select_viewport_height,
-    preview_select_viewport_height,
-};
+use pretty_assertions::assert_eq;
+
+use crate::preview::utils::{desired_select_viewport_height, preview_select_viewport_height};
+use crate::preview::{PreviewLayout, PreviewPlacement, bottom_preview_height};
 
 #[test]
 fn test_desired_select_viewport_height_right_ignores_preview_line_count() {

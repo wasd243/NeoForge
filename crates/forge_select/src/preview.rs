@@ -1,3 +1,7 @@
+mod utils;
+mod types;
+mod terminal_guard;
+
 use std::collections::BTreeSet;
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -6,33 +10,30 @@ use std::{cmp, fmt};
 use std::path::{self, PathBuf};
 use std::fs;
 use colored::Colorize;
-use crossterm::cursor::{Hide, MoveTo, MoveToColumn, MoveUp, Show};
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
-    KeyModifiers, MouseEventKind,
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind,
 };
 use crossterm::style::{
     Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
 };
-use crossterm::terminal::{self, Clear, ClearType, disable_raw_mode, enable_raw_mode};
-use crossterm::{execute, queue};
-use derive_setters::Setters;
+use crossterm::terminal::{self, Clear, ClearType};
+use crossterm::queue;
 use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config as NucleoConfig, Nucleo, Utf32String};
 
-/// Row rendered by the shared selector UI.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SelectRow {
-    /// Machine-readable value returned when the row is selected.
-    pub raw: String,
-    /// User-facing text rendered in the selector list.
-    pub display: String,
-    /// Text indexed by the fuzzy matcher.
-    pub search: String,
-    /// Additional machine-readable fields used for preview placeholder
-    /// expansion.
-    pub fields: Vec<String>,
-}
+use crate::preview::{
+    utils::{
+        reserve_inline_viewport_space,
+        select_viewport_height,
+        desired_select_viewport_height,
+        viewport_move_to,
+        restore_select_viewport,
+    },
+    terminal_guard::TerminalGuard,
+};
+
+/// Types here
+pub use crate::preview::types::{SelectRow, PreviewPlacement, PreviewLayout, SelectUiOptions};
 
 impl SelectRow {
     /// Creates a selectable row with a raw value and a display value.
@@ -69,225 +70,9 @@ impl fmt::Display for SelectRow {
     }
 }
 
-/// Placement of the selector preview pane.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PreviewPlacement {
-    /// Render preview to the right of the list.
-    Right,
-    /// Render preview below the list.
-    Bottom,
-}
-
-/// Preview pane layout configuration.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PreviewLayout {
-    /// Preview pane placement.
-    pub placement: PreviewPlacement,
-    /// Percentage of available space allocated to preview.
-    pub percent: u16,
-}
-
 impl Default for PreviewLayout {
     fn default() -> Self {
         Self { placement: PreviewPlacement::Right, percent: 50 }
-    }
-}
-
-const SELECT_VIEWPORT_PERCENT: u16 = 95;
-
-fn max_select_viewport_height(full_height: u16) -> u16 {
-    let full_height = full_height.max(1);
-    ((full_height as u32 * SELECT_VIEWPORT_PERCENT as u32) / 100)
-        .max(1)
-        .min(full_height as u32) as u16
-}
-
-fn select_viewport_height(full_height: u16, desired_height: u16) -> u16 {
-    let full_height = full_height.max(1);
-    let desired_height = desired_height.max(1);
-    if desired_height <= full_height {
-        desired_height
-    } else {
-        max_select_viewport_height(full_height)
-    }
-}
-
-fn preview_select_viewport_height(full_height: u16) -> u16 {
-    let full_height = full_height.max(1);
-    full_height.saturating_sub(1).max(1)
-}
-
-fn reserve_inline_viewport_space(
-    stderr: &mut impl Write,
-    desired_height: u16,
-) -> io::Result<(u16, u16)> {
-    let (_, full_height) = terminal::size()?;
-    let reserved_height = if desired_height == u16::MAX {
-        preview_select_viewport_height(full_height)
-    } else {
-        max_select_viewport_height(full_height)
-            .max(select_viewport_height(full_height, desired_height))
-    };
-
-    // Reserve space by scrolling the terminal, but leave the cursor on the
-    // original prompt row. The shell completion widget expects control to
-    // return on that same row so it can rewrite the current ZLE buffer.
-    for _ in 0..reserved_height {
-        queue!(stderr, Print("\r\n"))?;
-    }
-    queue!(stderr, MoveUp(reserved_height), MoveToColumn(0))?;
-    stderr.flush()?;
-
-    let cursor_top_row = full_height.saturating_sub(reserved_height.max(1));
-    Ok((reserved_height, cursor_top_row))
-}
-
-fn desired_select_viewport_height(
-    header_rows: usize,
-    matched_rows: usize,
-    preview_lines: usize,
-    layout: PreviewLayout,
-) -> u16 {
-    let header_height = 2u16.saturating_add(header_rows as u16);
-    let list_height = (matched_rows as u16).max(1);
-    let preview_lines = preview_lines as u16;
-
-    match layout.placement {
-        PreviewPlacement::Right => header_height.saturating_add(list_height),
-        PreviewPlacement::Bottom if preview_lines > 0 => header_height
-            .saturating_add(list_height)
-            .saturating_add(preview_lines.saturating_add(2)),
-        PreviewPlacement::Bottom => header_height.saturating_add(list_height),
-    }
-    .max(1)
-}
-
-fn viewport_move_to(x: u16, y: u16, top_row: u16) -> MoveTo {
-    MoveTo(x, top_row.saturating_add(y))
-}
-
-fn restore_select_viewport(
-    stderr: &mut impl Write,
-    reserved_height: u16,
-    viewport_top_row: u16,
-) -> io::Result<()> {
-    let (_, full_height) = terminal::size()?;
-    let max_top_row = full_height.saturating_sub(reserved_height.max(1));
-    let viewport_top_row = viewport_top_row.min(max_top_row);
-
-    for row_index in 0..reserved_height {
-        queue!(
-            stderr,
-            viewport_move_to(0, row_index, viewport_top_row),
-            Clear(ClearType::CurrentLine)
-        )?;
-    }
-    queue!(stderr, MoveTo(0, viewport_top_row.saturating_sub(1)))?;
-    stderr.flush()
-}
-
-struct TerminalGuard {
-    raw_mode_was_enabled: bool,
-}
-
-impl TerminalGuard {
-    fn enter() -> anyhow::Result<Self> {
-        let raw_mode_was_enabled = terminal::is_raw_mode_enabled()?;
-        enable_raw_mode()?;
-        execute!(io::stderr(), EnableMouseCapture, Hide)?;
-        Ok(Self { raw_mode_was_enabled })
-    }
-}
-
-impl Drop for TerminalGuard {
-    fn drop(&mut self) {
-        let _ = execute!(io::stderr(), Show, DisableMouseCapture);
-        if !self.raw_mode_was_enabled {
-            let _ = disable_raw_mode();
-        }
-    }
-}
-
-/// Options for running the shared selector UI.
-#[derive(Debug, Setters)]
-#[setters(into)]
-pub struct SelectUiOptions {
-    /// Optional prompt text displayed before the query.
-    #[setters(skip)]
-    pub prompt: Option<String>,
-    /// Optional initial search query.
-    pub query: Option<String>,
-    /// Rows rendered by the selector.
-    pub rows: Vec<SelectRow>,
-    /// Number of leading rows treated as non-selectable headers.
-    pub header_lines: usize,
-    /// Selection mode.
-    pub mode: SelectMode,
-    /// Optional shell command used to render the selected row preview.
-    pub preview: Option<String>,
-    /// Preview pane layout.
-    pub preview_layout: PreviewLayout,
-    /// Optional raw value to focus initially.
-    pub initial_raw: Option<String>,
-    /// Optional working directory for resolving relative paths in preview.
-    #[setters(skip)]
-    pub working_dir: Option<PathBuf>,
-}
-
-impl SelectUiOptions {
-    /// Creates selector options for the provided prompt and rows.
-    pub fn new(prompt: impl Into<String>, rows: Vec<SelectRow>) -> Self {
-        Self {
-            prompt: Some(prompt.into()),
-            query: None,
-            rows,
-            header_lines: 0,
-            mode: SelectMode::Single,
-            preview: None,
-            preview_layout: PreviewLayout::default(),
-            initial_raw: None,
-            working_dir: None,
-        }
-    }
-
-    /// Sets the working directory used to resolve relative paths when
-    /// rendering the preview of the selected row.
-    ///
-    /// # Arguments
-    ///
-    /// * `working_dir` - Base directory against which relative row values are
-    ///   resolved. `None` falls back to the process working directory.
-    pub fn working_dir(mut self, working_dir: Option<PathBuf>) -> Self {
-        self.working_dir = working_dir;
-        self
-    }
-
-    /// Runs the selector and returns the selected row.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if terminal setup, event handling, rendering, or
-    /// preview command execution setup fails.
-    pub fn prompt(self) -> anyhow::Result<Option<SelectRow>> {
-        let rows = self.rows.clone();
-        let selected_raw = run_select_ui(self)?;
-        Ok(selected_raw.and_then(|raw| rows.into_iter().find(|row| row.raw == raw)))
-    }
-
-    /// Runs the selector and returns all selected rows.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if terminal setup, event handling, rendering, or
-    /// preview command execution setup fails.
-    pub fn prompt_multi(self) -> anyhow::Result<Option<Vec<SelectRow>>> {
-        let rows = self.rows.clone();
-        let selected_raws = run_select_ui_values(self)?;
-        Ok(selected_raws.map(|raws| {
-            raws.into_iter()
-                .filter_map(|raw| rows.iter().find(|row| row.raw == raw).cloned())
-                .collect()
-        }))
     }
 }
 
