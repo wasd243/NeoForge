@@ -71,7 +71,27 @@ impl InputCompleter {
         Self { cwd, command: CommandCompleter::new(command_manager) }
     }
 
-    pub fn complete(&mut self, line: &str, pos: usize) -> Vec<InputSuggestion> {
+    /// Produces completion suggestions for the current input line.
+    ///
+    /// # Arguments
+    ///
+    /// * `line` - The current input buffer.
+    /// * `pos` - The cursor position (byte offset) within `line`.
+    /// * `trigger` - The character (`@` or `/`) that automatically triggered
+    ///   this completion, or `None` when completion was requested explicitly
+    ///   (e.g. via `Tab`).
+    pub fn complete(
+        &mut self,
+        line: &str,
+        pos: usize,
+        trigger: Option<char>,
+    ) -> Vec<InputSuggestion> {
+        match trigger {
+            Some('@') => return self.complete_file_trigger(pos),
+            Some('/') => return self.complete_command_trigger(pos),
+            _ => {}
+        }
+
         if line.starts_with('/') {
             // if the line starts with '/' it's probably a command, so we delegate to
             // the command completer.
@@ -99,5 +119,45 @@ impl InputCompleter {
         }
 
         vec![]
+    }
+
+    /// Opens the workspace file picker immediately after the user types `@`.
+    ///
+    /// Returns a suggestion inserting `@[<file>]` at the cursor, or the plain
+    /// `@` character when the picker is dismissed without a selection.
+    fn complete_file_trigger(&mut self, pos: usize) -> Vec<InputSuggestion> {
+        if let Ok(Some(selected)) = select_workspace_file(&self.cwd, None) {
+            return vec![InputSuggestion {
+                value: format!("@[{selected}]"),
+                span: Span::new(pos, pos),
+                append_whitespace: true,
+            }];
+        }
+
+        // Picker dismissed: still insert the character the user typed.
+        vec![InputSuggestion {
+            value: "@".to_string(),
+            span: Span::new(pos, pos),
+            append_whitespace: false,
+        }]
+    }
+
+    /// Opens the command picker immediately after the user types `/` on an
+    /// empty line.
+    ///
+    /// Returns the selected command, or the plain `/` character when the
+    /// picker is dismissed without a selection.
+    fn complete_command_trigger(&mut self, pos: usize) -> Vec<InputSuggestion> {
+        let result = self.command.complete("/", 1);
+        if !result.is_empty() {
+            return result;
+        }
+
+        // Picker dismissed: still insert the character the user typed.
+        vec![InputSuggestion {
+            value: "/".to_string(),
+            span: Span::new(pos, pos),
+            append_whitespace: false,
+        }]
     }
 }

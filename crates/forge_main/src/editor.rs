@@ -13,8 +13,8 @@ use rustyline::hint::{Hinter, HistoryHinter};
 use rustyline::history::DefaultHistory;
 use rustyline::validate::Validator;
 use rustyline::{
-    Cmd, Context as RustylineContext, Editor, EventHandler, Helper, KeyCode, KeyEvent, Modifiers,
-    Prompt as RustylinePrompt,
+    Cmd, ConditionalEventHandler, Context as RustylineContext, Editor, Event, EventContext,
+    EventHandler, Helper, KeyCode, KeyEvent, Modifiers, Prompt as RustylinePrompt, RepeatCount,
 };
 
 use super::completer::InputCompleter;
@@ -24,6 +24,47 @@ use crate::model::ForgeCommandManager;
 use crate::prompt::ForgePrompt;
 
 const HISTORY_CAPACITY: usize = 1024 * 1024;
+
+/// Shared slot recording which character triggered an automatic completion.
+type CompletionTrigger = Arc<Mutex<Option<char>>>;
+
+/// Opens the completion menu automatically when a trigger character (`@` or
+/// `/`) is typed in an appropriate context, instead of waiting for `Tab`.
+struct AutoCompleteHandler {
+    ch: char,
+    trigger: CompletionTrigger,
+}
+
+impl AutoCompleteHandler {
+    /// Determines whether typing the trigger character in the current input
+    /// context should open the completion menu.
+    fn should_trigger(&self, ctx: &EventContext) -> bool {
+        match self.ch {
+            // `/` starts a command only at the beginning of an empty line.
+            '/' => ctx.line().is_empty(),
+            // `@` starts a file reference only at the start of a word.
+            '@' => ctx
+                .line()
+                .get(..ctx.pos())
+                .is_some_and(|prefix| prefix.chars().next_back().is_none_or(char::is_whitespace)),
+            _ => false,
+        }
+    }
+}
+
+impl ConditionalEventHandler for AutoCompleteHandler {
+    fn handle(&self, _: &Event, _: RepeatCount, _: bool, ctx: &EventContext) -> Option<Cmd> {
+        if self.should_trigger(ctx) {
+            *self
+                .trigger
+                .lock()
+                .expect("completion trigger mutex poisoned") = Some(self.ch);
+            Some(Cmd::Complete)
+        } else {
+            None
+        }
+    }
+}
 
 /// Interactive terminal editor used by the Forge prompt.
 pub struct ForgeEditor {
@@ -50,7 +91,8 @@ impl ForgeEditor {
         manager: Arc<ForgeCommandManager>,
     ) -> Self {
         let history_file = env.history_path(custom_history_path.as_ref());
-        let helper = ForgeHelper::new(env.cwd, manager);
+        let trigger: CompletionTrigger = Arc::new(Mutex::new(None));
+        let helper = ForgeHelper::new(env.cwd, manager, trigger.clone());
         let config = Config::builder()
             .max_history_size(HISTORY_CAPACITY)
             .expect("rustyline history capacity should be valid")
@@ -73,6 +115,15 @@ impl ForgeEditor {
             KeyEvent(KeyCode::Char('K'), Modifiers::CTRL),
             EventHandler::Simple(Cmd::ClearScreen),
         );
+        for ch in ['@', '/'] {
+            editor.bind_sequence(
+                KeyEvent(KeyCode::Char(ch), Modifiers::NONE),
+                EventHandler::Conditional(Box::new(AutoCompleteHandler {
+                    ch,
+                    trigger: trigger.clone(),
+                })),
+            );
+        }
         editor.set_helper(Some(helper));
         let _ = editor.load_history(&history_file);
         Self { editor, history_file, pending_buffer: None }
@@ -185,14 +236,20 @@ struct ForgeHelper {
     completer: Mutex<InputCompleter>,
     highlighter: ForgeHighlighter,
     hinter: HistoryHinter,
+    trigger: CompletionTrigger,
 }
 
 impl ForgeHelper {
-    fn new(cwd: PathBuf, command_manager: Arc<ForgeCommandManager>) -> Self {
+    fn new(
+        cwd: PathBuf,
+        command_manager: Arc<ForgeCommandManager>,
+        trigger: CompletionTrigger,
+    ) -> Self {
         Self {
             completer: Mutex::new(InputCompleter::new(cwd, command_manager)),
             highlighter: ForgeHighlighter,
             hinter: HistoryHinter {},
+            trigger,
         }
     }
 }
@@ -212,7 +269,12 @@ impl Completer for ForgeHelper {
             .completer
             .lock()
             .expect("input completer mutex poisoned");
-        let suggestions = completer.complete(line, pos);
+        let trigger = self
+            .trigger
+            .lock()
+            .expect("completion trigger mutex poisoned")
+            .take();
+        let suggestions = completer.complete(line, pos, trigger);
         let start = suggestions
             .iter()
             .map(|suggestion| suggestion.span.start)
