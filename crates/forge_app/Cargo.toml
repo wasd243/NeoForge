@@ -3,6 +3,7 @@ name = "forge_app"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
+autotests = false
 
 [dependencies]
 forge_domain.workspace = true
