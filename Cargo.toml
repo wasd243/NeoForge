@@ -26,7 +26,7 @@ aws-smithy-types = "1.4.3"
 aws-smithy-runtime-api = "1.11.3"
 aws-smithy-async = { version = "1.2.11", features = ["rt-tokio"] }
 aws-smithy-runtime = { version = "1.10", features = ["connector-hyper-0-14-x", "tls-rustls"] }
-base64 = "0.22.1"
+base64 = "0.23.0"
 bstr = "1.12.1"
 bytes = "1.11.1"
 chrono = { version = "0.4.44", features = ["serde"] }
@@ -51,7 +51,7 @@ http = "1.2.0"
 ignore = "0.4.23"
 is_ci = "1.2.0"
 indexmap = "2.13.0"
-infer = "0.19.0"
+infer = "0.22.0"
 insta = { version = "1.47.2", features = ["json", "yaml"] }
 lazy_static = "1.4.0"
 mockito = "1.7.2"
@@ -79,9 +79,9 @@ similar = { version = "3.0", features = ["inline"] }
 strip-ansi-escapes = "0.2.1"
 strum = "0.28.0"
 strum_macros = "0.28.0"
-syn = { version = "2.0.117", features = ["derive", "parsing"] }
+syn = { version = "3.0.3", features = ["derive", "parsing"] }
 tempfile = "3.27.0"
-termimad = "0.34.1"
+termimad = "0.35.1"
 tiny_http = "0.12.0"
 syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-onig"] }
 thiserror = "2.0.18"
@@ -116,7 +116,7 @@ which = "8.0.4"
 fnv_rs = "0.4.3"
 merge = { version = "0.2", features = ["derive"] }
 hex = "0.4.3"
-rmcp = { version = "1.0.0", features = [
+rmcp = { version = "2.2.0", features = [
     "client",
     "transport-child-process",
     "transport-streamable-http-client-reqwest",
@@ -130,7 +130,7 @@ num-format = "0.4"
 humantime = "2.1.0"
 dashmap = "7.0.0-rc2"
 async-openai = { version = "0.41.0", default-features = false, features = ["response-types"] } # Using only types, not the API client - reduces dependencies
-gix = "0.85"
+gix = "0.86"
 google-cloud-auth = "1.8.0" # Google Cloud authentication with automatic token refresh
 
 # Internal crates
